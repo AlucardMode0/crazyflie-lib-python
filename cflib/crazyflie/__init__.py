@@ -40,6 +40,8 @@ from threading import Lock
 from threading import Thread
 from threading import Timer
 
+from pytz.reference import Local
+
 import cflib.crtp
 from .commander import Commander
 from .console import Console

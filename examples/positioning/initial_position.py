@@ -37,7 +37,7 @@ initial position of the kalman estimator.
 """
 import math
 import time
-
+import threading
 import cflib.crtp
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
@@ -45,17 +45,17 @@ from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 from cflib.crazyflie.syncLogger import SyncLogger
 
 # URI to the Crazyflie to connect to
-uri = 'radio://0/80/2M'
+uri = 'radio://0/80/250K'
 
 # Change the sequence according to your setup
 #             x    y    z
-sequence = [
+"""sequence = [
     (0, 0, 0.7),
     (-0.7, 0, 0.7),
     (0, 0, 0.7),
     (0, 0, 0.2),
 ]
-
+"""
 
 def wait_for_position_estimator(scf):
     print('Waiting for estimator to find position...')
@@ -65,9 +65,14 @@ def wait_for_position_estimator(scf):
     log_config.add_variable('kalman.varPY', 'float')
     log_config.add_variable('kalman.varPZ', 'float')
 
+
+
+
     var_y_history = [1000] * 10
     var_x_history = [1000] * 10
     var_z_history = [1000] * 10
+
+
 
     threshold = 0.001
 
@@ -81,6 +86,7 @@ def wait_for_position_estimator(scf):
             var_y_history.pop(0)
             var_z_history.append(data['kalman.varPZ'])
             var_z_history.pop(0)
+
 
             min_x = min(var_x_history)
             max_x = max(var_x_history)
@@ -102,6 +108,8 @@ def set_initial_position(scf, x, y, z, yaw_deg):
     scf.cf.param.set_value('kalman.initialX', x)
     scf.cf.param.set_value('kalman.initialY', y)
     scf.cf.param.set_value('kalman.initialZ', z)
+    scf.cf.param.set_value('motorPowerSet.enable', 1)
+
 
     yaw_radians = math.radians(yaw_deg)
     scf.cf.param.set_value('kalman.initialYaw', yaw_radians)
@@ -126,8 +134,13 @@ def run_sequence(scf, sequence, base_x, base_y, base_z, yaw):
         y = position[1] + base_y
         z = position[2] + base_z
 
+
         for i in range(50):
+
             cf.commander.send_position_setpoint(x, y, z, yaw)
+
+
+
             time.sleep(0.1)
 
     cf.commander.send_stop_setpoint()
@@ -136,15 +149,40 @@ def run_sequence(scf, sequence, base_x, base_y, base_z, yaw):
     time.sleep(0.1)
 
 
+
+def position (scf):
+    log_config = LogConfig(name='Kalman Variance', period_in_ms=500)
+
+    log_config.add_variable('stateEstimate.x', 'float')
+    log_config.add_variable('stateEstimate.y', 'float')
+    log_config.add_variable('stateEstimate.z', 'float')
+
+    e_var_y_history = [1000] * 10
+    e_var_x_history = [1000] * 10
+    e_var_z_history = [1000] * 10
+
+    with SyncLogger(scf, log_config) as logger:
+        for log_entry in logger:
+            data = log_entry[1]
+            e_var_x_history.append(data['stateEstimate.x'])
+            e_var_x_history.pop(0)
+            e_var_y_history.append(data['stateEstimate.y'])
+            e_var_y_history.pop(0)
+            e_var_z_history.append(data['stateEstimate.z'])
+            e_var_z_history.pop(0)
+            print( e_var_z_history)
+
+
+
 if __name__ == '__main__':
     cflib.crtp.init_drivers(enable_debug_driver=False)
 
     # Set these to the position and yaw based on how your Crazyflie is placed
     # on the floor
-    initial_x = 1.0
-    initial_y = 1.0
+    initial_x = 0
+    initial_y = 0
     initial_z = 0.0
-    initial_yaw = 90  # In degrees
+    initial_yaw = 0  # In degrees
     # 0: positive X direction
     # 90: positive Y direction
     # 180: negative X direction
@@ -153,5 +191,10 @@ if __name__ == '__main__':
     with SyncCrazyflie(uri, cf=Crazyflie(rw_cache='./cache')) as scf:
         set_initial_position(scf, initial_x, initial_y, initial_z, initial_yaw)
         reset_estimator(scf)
-        run_sequence(scf, sequence,
+        thread1 = threading.Thread(target=position, args=(scf,))
+        thread1.start()
+        run_sequence(scf, [0,0,0],
                      initial_x, initial_y, initial_z, initial_yaw)
+        scf.cf.param.set_value('motorPowerSet.m1', 0)
+        thread1.kill()
+
